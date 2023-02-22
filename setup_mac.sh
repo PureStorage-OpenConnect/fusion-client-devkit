@@ -57,6 +57,9 @@ if [[ ! "$(uname -s)" == "Darwin" ]]; then
   exit
 fi
 
+# Install xcode
+xcode-select --install
+
 # HMCTL setup
 
 echo -e "${blue}################################"
