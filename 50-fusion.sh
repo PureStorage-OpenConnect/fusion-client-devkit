@@ -35,4 +35,4 @@ export API_CLIENT="$(cat /api-client/issuer)"
 
 # Turn on auto-completion for hmctl
 source <(hmctl completion bash)
-source /etc/bash_completion.d
+source /etc/bash_completion.d/hmctl
