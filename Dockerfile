@@ -17,6 +17,7 @@ FROM swaggerapi/swagger-ui:v4.15.5
 RUN apk update
 RUN apk add wget git py3-pip 
 RUN apk add --no-cache bash bash-completion
+RUN apk add terraform --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
 # Install Python SDK and Ansible
 RUN pip3 install --upgrade pip && pip3 install purefusion cryptography==3.4.8 ansible netaddr
