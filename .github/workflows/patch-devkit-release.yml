@@ -1,0 +1,99 @@
+on:
+  workflow_dispatch:
+    inputs:
+      patchName:
+        description: "Name of version patch"
+        required: true
+      updateLatest:
+        type: boolean
+        description: "Push image to latest tag"
+        default: false
+
+jobs:
+  create-patch-image:
+    runs-on: ubuntu-latest
+    name: Create and publish multi-arch Devkit patch image
+    environment: fusion-devkit-env
+    if: startsWith(github.ref, 'refs/heads/release')
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get version
+        run: echo CURRENT_VERSION="$(echo ${{ github.ref_name }} | sed -e "s/^release\///")" >> $GITHUB_ENV
+      - name: Get tag
+        run: echo PATCH_TAG=${{ env.CURRENT_VERSION }}.${{ github.event.inputs.patchName }} >> $GITHUB_ENV
+
+      - name: Get swagger-ui repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+          repository: swagger-api/swagger-ui
+          ref: refs/tags/${{ vars.SWAGGER_UI_VERSION }}
+          path: ./swagger-ui
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: |
+            network=host
+          platforms: linux/amd64,linux/arm64
+
+      - name: Run local registry
+        run: docker run -d --name ${{ vars.TEMP_LOCAL_REGISTRY_NAME }} --network=host registry:2
+        shell: bash
+
+      - name: Build and push swagger-ui to local registry
+        run: docker buildx build --push --provenance=false --network=host --platform linux/amd64,linux/arm64 -t localhost:5000/swagger-ui:${{ vars.SWAGGER_UI_VERSION }} ./swagger-ui/.
+        shell: bash
+
+      - name: Login to image public registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ vars.IMAGE_REGISTRY }}
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push imgae public registry
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          provenance: false
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            SWAGGER_UI_IMAGE=swagger-ui:${{ vars.SWAGGER_UI_VERSION }}
+            LOCAL_REGISTRY=localhost:5000/
+          tags: |
+            ${{ vars.IMAGE_REGISTRY }}/${{ vars.IMAGE_NAME }}:${{ env.PATCH_TAG }}
+
+      - name: Create artifact image amd64
+        run: |
+          docker pull ${{ vars.IMAGE_REGISTRY }}/${{ vars.IMAGE_NAME }}:${{ env.PATCH_TAG }} --platform amd64 \
+          && docker save ${{ vars.IMAGE_REGISTRY }}/${{ vars.IMAGE_NAME }}:${{ env.PATCH_TAG }} > fusion-devkit-amd64.tar
+      - name: Create artifact image arm64
+        run: |
+          docker pull ${{ vars.IMAGE_REGISTRY }}/${{ vars.IMAGE_NAME }}:${{ env.PATCH_TAG }} --platform arm64 \
+          && docker save ${{ vars.IMAGE_REGISTRY }}/${{ vars.IMAGE_NAME }}:${{ env.PATCH_TAG }} > fusion-devkit-arm64.tar
+
+      - name: Create tag
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try{
+              github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'refs/tags/${{ env.PATCH_TAG }}',
+                sha: context.sha
+              })
+            } catch (error) {
+              core.setFailed(error.message);
+            }
+
+      - name: Create a release in GitHub and upload assets
+        env:
+          GITHUB_TOKEN: ${{ github.TOKEN }}
+        run: gh release create --title "Fusion-Devkit ${{ env.PATCH_TAG }}" ${{ env.PATCH_TAG }} *.tar
+        shell: bash

@@ -16,21 +16,22 @@
 # To use hmctl: docker exec <CONTAINER_ID> hmctl <COMMAND>
 # You can also enter interactive session: docker exec -it <CONTAINER_ID> /bin/bash
 
-ARG TARGETPLATFORM
-ARG LOCAL_REGISTRY=localhost:5000/
-ARG SWAGGER_UI_IMAGE=swagger-ui:v4.15.5
+ARG LOCAL_REGISTRY=localhost:5000/ SWAGGER_UI_IMAGE=swagger-ui:v4.15.5
 
 FROM ${LOCAL_REGISTRY}${SWAGGER_UI_IMAGE}
 
 # Install required tools
 RUN apk update && apk add --no-cache wget git\
-    py3-pip python3-dev\
-    bash bash-completion\
-    gcc musl-dev libffi-dev openssh
-RUN apk add terraform --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
+    py3-pip bash bash-completion openssh terraform
+
+# Install tools for arm64
+ARG TARGETPLATFORM
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then apk add --no-cache python3-dev libffi-dev gcc musl-dev; fi
+
+# Clear cache
+RUN rm -rf /var/cache/apk/*
 
 # Install Python SDK and Ansible
-RUN pip3 install wheel
 RUN pip3 install purefusion cryptography==3.4.8 ansible netaddr
 
 # Install ansible's fusion collection
@@ -45,7 +46,7 @@ COPY python  ./samples/python
 COPY terraform ./samples/terraform
 
 # Install hmctl 
-RUN if [ ${TARGETPLATFORM} == "linux/arm64" ] ; then wget -O /bin/hmctl https://github.com/PureStorage-OpenConnect/hmctl/releases/latest/download/hmctl-linux-arm64 ; else wget -O /bin/hmctl https://github.com/PureStorage-OpenConnect/hmctl/releases/latest/download/hmctl-linux-amd64 ; fi
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then wget -O /bin/hmctl https://github.com/PureStorage-OpenConnect/hmctl/releases/latest/download/hmctl-linux-arm64 ; else wget -O /bin/hmctl https://github.com/PureStorage-OpenConnect/hmctl/releases/latest/download/hmctl-linux-amd64 ; fi
 RUN chmod +x /bin/hmctl &&\
     mkdir /etc/bash_completion.d &&\
     hmctl completion bash > /etc/bash_completion.d/hmctl
